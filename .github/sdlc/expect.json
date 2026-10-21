@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "ticket": "linkding-1372",
+  "run": "run-90ce02",
+  "base_sha": "6985d56e2622db32fc15eeb4f73c75e4c94fc23e",
+  "setup": [
+    [
+      "uv",
+      "sync"
+    ],
+    [
+      "npm",
+      "ci"
+    ],
+    [
+      "npm",
+      "run",
+      "build"
+    ],
+    [
+      "python",
+      "manage.py",
+      "collectstatic",
+      "--noinput"
+    ],
+    [
+      "python",
+      "-m",
+      "playwright",
+      "install",
+      "chromium"
+    ]
+  ],
+  "dirs": [
+    "data"
+  ],
+  "suites": {
+    "unit": [
+      "python",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "bookmarks/tests",
+      "-n",
+      "auto"
+    ],
+    "e2e": [
+      "python",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "-o",
+      "python_files=e2e_test_*.py",
+      "bookmarks/tests_e2e"
+    ]
+  },
+  "suites_from": "manifest",
+  "new_tests": [
+    "bookmarks/tests/test_bookmarks_import_trailing_slash_api.py::BookmarksImportTrailingSlashApiTestCase::test_import_collapses_trailing_slash_variants_into_one_bookmark",
+    "bookmarks/tests/test_bookmarks_import_trailing_slash_api.py::BookmarksImportTrailingSlashApiTestCase::test_import_does_not_duplicate_existing_bookmark_with_trailing_slash_variant",
+    "bookmarks/tests/test_bookmarks_import_trailing_slash_api.py::BookmarksImportTrailingSlashApiTestCase::test_import_of_distinct_urls_keeps_both_and_reports_count",
+    "bookmarks/tests_e2e/e2e_test_import_trailing_slash.py::ImportTrailingSlashE2ETestCase::test_edit_after_importing_trailing_slash_variants_succeeds"
+  ],
+  "known_skips": [
+    {
+      "id": "bookmarks/tests_e2e/e2e_test_bookmark_item.py::BookmarkItemE2ETestCase::test_toggle_notes_should_show_hide_notes",
+      "reason": "upstream @skip('Fails in CI, needs investigation') at base 0837b51"
+    },
+    {
+      "id": "bookmarks/tests/test_feeds.py::FeedsTestCase::test_strip_control_characters",
+      "reason": "upstream skipIf LD_DB_ENGINE == postgres; runs on SQLite"
+    }
+  ],
+  "protected": [
+    "bookmarks/tests/**",
+    "bookmarks/tests_e2e/**"
+  ],
+  "mocks_protected": []
+}

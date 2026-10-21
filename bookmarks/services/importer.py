@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from django.contrib.auth.models import User
+from django.db.models import Q
 from django.utils import timezone
 
 from bookmarks.models import Bookmark, Tag
@@ -53,6 +54,34 @@ class TagCache:
 
     def put(self, tag: Tag):
         self.cache[tag.name.lower()] = tag
+
+
+class BookmarkLookup:
+    # Finds bookmarks by exact URL, or else by normalized URL, so that URLs that
+    # are considered equivalent (see Bookmark.query_existing) resolve to the same
+    # bookmark
+    def __init__(self, bookmarks):
+        self.by_url = dict()
+        self.by_normalized_url = dict()
+        for bookmark in bookmarks:
+            self.put(bookmark)
+
+    def get(self, url: str):
+        if not url:
+            return None
+        bookmark = self.by_url.get(url)
+        if bookmark is None:
+            bookmark = self.by_normalized_url.get(normalize_url(url))
+        return bookmark
+
+    def put(self, bookmark: Bookmark):
+        if not bookmark.url:
+            return
+        # Keep the first bookmark for a URL, in case there are already duplicates
+        self.by_url.setdefault(bookmark.url, bookmark)
+        normalized_url = bookmark.url_normalized or normalize_url(bookmark.url)
+        if normalized_url:
+            self.by_normalized_url.setdefault(normalized_url, bookmark)
 
 
 def import_netscape_html(
@@ -136,9 +165,9 @@ def _import_batch(
     tag_cache: TagCache,
     result: ImportResult,
 ):
-    # Query existing bookmarks
+    # Query existing bookmarks, by exact or normalized URL
     batch_urls = [bookmark.href for bookmark in netscape_bookmarks]
-    existing_bookmarks = Bookmark.objects.filter(owner=user, url__in=batch_urls)
+    bookmark_lookup = BookmarkLookup(_query_existing_bookmarks(user, batch_urls))
 
     # Create or update bookmarks from parsed Netscape bookmarks
     bookmarks_to_create = []
@@ -147,30 +176,23 @@ def _import_batch(
     for netscape_bookmark in netscape_bookmarks:
         result.total = result.total + 1
         try:
-            # Lookup existing bookmark by URL, or create new bookmark if there is no bookmark for that URL yet
-            bookmark = next(
-                (
-                    bookmark
-                    for bookmark in existing_bookmarks
-                    if bookmark.url == netscape_bookmark.href
-                ),
-                None,
-            )
+            # Lookup existing bookmark by URL, or create new bookmark if there is no bookmark for that URL yet.
+            # This also finds bookmarks created for an equivalent URL earlier in this batch.
+            bookmark = bookmark_lookup.get(netscape_bookmark.href)
             if not bookmark:
                 bookmark = Bookmark(owner=user)
-                is_update = False
-            else:
-                is_update = True
             # Copy data from parsed bookmark
             _copy_bookmark_data(netscape_bookmark, bookmark, options)
             # Validate bookmark fields, exclude owner to prevent n+1 database query,
             # also there is no specific validation on owner
             bookmark.clean_fields(exclude=["owner"])
-            # Schedule for update or insert
-            if is_update:
-                bookmarks_to_update.append(bookmark)
-            else:
+            # Schedule for update or insert, if not already scheduled for an equivalent URL
+            if bookmark.pk is not None:
+                if bookmark not in bookmarks_to_update:
+                    bookmarks_to_update.append(bookmark)
+            elif bookmark not in bookmarks_to_create:
                 bookmarks_to_create.append(bookmark)
+            bookmark_lookup.put(bookmark)
 
             result.success = result.success + 1
         except Exception:
@@ -200,21 +222,14 @@ def _import_batch(
     # Bulk assign tags
     # In Django 3, bulk_create does not return the auto-generated IDs when bulk inserting,
     # so we have to reload the inserted bookmarks, and match them to the parsed bookmarks by URL
-    existing_bookmarks = Bookmark.objects.filter(owner=user, url__in=batch_urls)
+    bookmark_lookup = BookmarkLookup(_query_existing_bookmarks(user, batch_urls))
 
     BookmarkToTagRelationShip = Bookmark.tags.through
     relationships = []
 
     for netscape_bookmark in netscape_bookmarks:
         # Lookup bookmark by URL again
-        bookmark = next(
-            (
-                bookmark
-                for bookmark in existing_bookmarks
-                if bookmark.url == netscape_bookmark.href
-            ),
-            None,
-        )
+        bookmark = bookmark_lookup.get(netscape_bookmark.href)
 
         if not bookmark:
             # Something is wrong, we should have just created this bookmark
@@ -231,6 +246,17 @@ def _import_batch(
 
     # Insert all bookmark -> tag associations at once, should ignore errors if association already exists
     BookmarkToTagRelationShip.objects.bulk_create(relationships, ignore_conflicts=True)
+
+
+def _query_existing_bookmarks(user: User, urls: list[str]):
+    # Same matching as Bookmark.query_existing, but for multiple URLs, also
+    # include exact matches to prefer those over equivalent URLs
+    urls = [url for url in urls if url]
+    normalized_urls = [normalize_url(url) for url in urls]
+    normalized_urls = [url for url in normalized_urls if url]
+    return Bookmark.objects.filter(
+        Q(owner=user) & (Q(url__in=urls) | Q(url_normalized__in=normalized_urls))
+    ).order_by("id")
 
 
 def _copy_bookmark_data(
