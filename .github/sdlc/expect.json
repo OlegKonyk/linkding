@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "ticket": "linkding-sort-by-modified",
+  "run": "ship-fixture-1",
+  "base_sha": "0837b5186979e4a52e75582bd295cc73e43d2612",
+  "setup": [
+    [
+      "uv",
+      "sync"
+    ],
+    [
+      "npm",
+      "ci"
+    ],
+    [
+      "npm",
+      "run",
+      "build"
+    ],
+    [
+      "python",
+      "manage.py",
+      "collectstatic",
+      "--noinput"
+    ],
+    [
+      "python",
+      "-m",
+      "playwright",
+      "install",
+      "chromium"
+    ]
+  ],
+  "dirs": [
+    "data"
+  ],
+  "suites": {
+    "unit": [
+      "python",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "bookmarks/tests",
+      "-n",
+      "auto"
+    ],
+    "e2e": [
+      "python",
+      "-m",
+      "pytest",
+      "-p",
+      "no:cacheprovider",
+      "-o",
+      "python_files=e2e_test_*.py",
+      "bookmarks/tests_e2e"
+    ]
+  },
+  "suites_from": "ci.json suites_fallback",
+  "new_tests": [
+    "bookmarks/tests/test_sort_by_modified_api.py::SortByModifiedApiTestCase::test_list_archived_bookmarks_sort_modified_asc_and_desc",
+    "bookmarks/tests/test_sort_by_modified_api.py::SortByModifiedApiTestCase::test_list_bookmarks_sort_modified_asc",
+    "bookmarks/tests/test_sort_by_modified_api.py::SortByModifiedApiTestCase::test_list_bookmarks_sort_modified_desc",
+    "bookmarks/tests/test_sort_by_modified_api.py::SortByModifiedApiTestCase::test_list_bookmarks_unknown_sort_falls_back_to_default_order",
+    "bookmarks/tests_e2e/e2e_test_sort_by_modified.py::SortByModifiedE2ETestCase::test_sort_archived_bookmarks_by_modified",
+    "bookmarks/tests_e2e/e2e_test_sort_by_modified.py::SortByModifiedE2ETestCase::test_sort_bookmarks_by_modified_asc_and_desc"
+  ],
+  "known_skips": [
+    {
+      "id": "bookmarks/tests_e2e/e2e_test_bookmark_item.py::BookmarkItemE2ETestCase::test_toggle_notes_should_show_hide_notes",
+      "reason": "upstream @skip('Fails in CI, needs investigation') at base 0837b51"
+    },
+    {
+      "id": "bookmarks/tests/test_feeds.py::FeedsTestCase::test_strip_control_characters",
+      "reason": "upstream skipIf LD_DB_ENGINE == postgres; runs on SQLite"
+    }
+  ],
+  "protected": [
+    "bookmarks/tests/**",
+    "bookmarks/tests_e2e/**"
+  ],
+  "mocks_protected": []
+}

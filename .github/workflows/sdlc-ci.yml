@@ -1,0 +1,60 @@
+# sdlc-ci: the pipeline's own check on the fork, additive to upstream's workflows.
+# Ship commits this file as .github/workflows/sdlc-ci.yml on the ticket branch, beside
+# .github/sdlc/sdlc_ci.py and .github/sdlc/expect.json. The pipeline reads back the check run
+# named "sdlc-ci" (this job's name) at the pull request's head SHA, and the result JSON from the
+# artifact "sdlc-ci-result". `sdlc ci <run>` runs the same script with the same file locally.
+# Actions pinned by SHA, resolved from each action's release tag on 2026-10-21.
+name: sdlc-ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdlc-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdlc-ci:
+    name: sdlc-ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the pull request head with history (the checks diff against the base)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Run the suites and the honesty checks
+        run: python3 .github/sdlc/sdlc_ci.py --expect .github/sdlc/expect.json --out-dir sdlc-ci-out
+
+      - name: Upload the result JSON and the JUnit reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sdlc-ci-result
+          path: sdlc-ci-out/
+          if-no-files-found: error
+          retention-days: 14
